@@ -1,5 +1,203 @@
+##Data Cleaning, Merging, and Predictive Analysis for NFL team data
+
 import pandas as pd
 
 scores = pd.read_csv('spreadspoke_scores.csv')
 print(scores.info())
-scores
+
+scores['team_home'].value_counts()
+scores[scores['team_favorite_id'].isnull()]
+
+#droping games from this season and before there were 32 teams.
+scores = scores.loc[(scores['schedule_season']>=2002) & (scores['schedule_season']<2022)]
+#dropping irrelevant columns
+scores.drop(['stadium_neutral','stadium'], inplace = True, axis = 1)
+scores.head(5)
+
+teams = pd.read_csv('nfl_teams.csv')
+teams.head()
+
+desired = teams[['team_id','team_name_short']]
+desired.sort_values(by = 'team_id', inplace = True)
+desired.drop_duplicates(keep = 'first',inplace = True)
+desired = desired[desired['team_name_short']!='Oilers']
+desired['team_favorite_id'] = desired['team_id']
+desired.drop('team_id', inplace = True, axis = 1)
+desired.head(5)
+
+#takes row and returns true or false based on whether favorite covered
+def fav_covered(row):
+    if((row['team_home']==row['team_favorite']) & (row['score_home']+row['spread_favorite']>row['score_away'])):
+        return True
+    elif((row['team_away']==row['team_favorite']) & (row['score_away']+row['spread_favorite']>row['score_home'])):
+        return True
+    return False
+
+scores_m = scores.merge(desired, on = 'team_favorite_id', how = 'left')
+scores_m['team_favorite'] = scores_m['team_name_short']
+scores_m.drop('team_name_short', inplace = True, axis = 1)
+scores_m['team_home'] = scores_m['team_home'].str.split(' ').str.get(-1)
+scores_m['team_away'] = scores_m['team_away'].str.split(' ').str.get(-1)
+scores_m.loc[scores_m['team_home']=='Team', 'team_home'] = 'Commanders'
+scores_m.loc[scores_m['team_away']=='Team', 'team_away'] = 'Commanders'
+scores_m.loc[scores_m['team_home']=='Redskins', 'team_home'] = 'Commanders'
+scores_m.loc[scores_m['team_away']=='Redskins', 'team_away'] = 'Commanders'
+
+for i in range(scores_m.shape[0]):
+    scores_m.loc[i,'fav_covered']=fav_covered(scores_m.loc[i])
+
+#takes row and returns true or false based on whether favorite covered
+def over_hit(row):
+    if(row['score_home']+row['score_away'] > row['over_under_line']):
+        return True
+    return False
+
+scores_m['over_under_line'] = scores_m['over_under_line'].astype(float)
+for i in range(scores_m.shape[0]):
+    scores_m.loc[i,'over_hit']=over_hit(scores_m.loc[i])
+
+#takes row and returns which team covered 
+def team_covered(row):
+    if(((row['team_favorite']==row['team_home'])&row['fav_covered'])|((row['team_favorite']==row['team_away']) and not row['fav_covered'])):
+        return row['team_home']
+    elif(((row['team_favorite']==row['team_away'])&row['fav_covered'])|((row['team_favorite']==row['team_home']) and not row['fav_covered'])):
+        return row['team_away']
+
+for i in range(scores_m.shape[0]):
+    scores_m.loc[i,'team_covered']=team_covered(scores_m.loc[i])
+scores_m = scores_m.reindex(columns =['schedule_date','schedule_season','schedule_week','schedule_playoff','team_home', 'score_home', 'team_away','score_away','team_favorite','team_favorite_id','spread_favorite','team_covered', 'fav_covered','over_under_line','over_hit','weather_wind_mph', 'weather_temperature','weather_humidity', 'weather_detail'])
+scores_m
+
+import matplotlib.pyplot as plt
+
+#exploratory visualizations
+
+scores_m['fav_covered'].value_counts(normalize = True).plot(kind = 'pie', title = 'Proportion of Favorites that Covered (2002-2021)',grid = False, figsize = (8,8), colors = ['r','g'])
+plt.legend(labels = round(scores_m['fav_covered'].value_counts(normalize = True),6).tolist(),loc = 'upper left')
+plt.ylabel('')
+
+scores_m['over_hit'].value_counts(normalize = True).plot(kind = 'pie', title = 'Proportion of Overs that Hit (2002-2021)',grid = False, figsize = (8,8), colors = ['r','g'])
+plt.legend(labels = round(scores_m['over_hit'].value_counts(normalize = True),6).tolist(),loc = 'upper left')
+plt.ylabel('')
+
+scores_m['team_covered'].value_counts().plot(kind = 'bar', title = 'Teams that Have Covered the Most Games (2002-2021)')
+scores_m[(scores_m['schedule_season']>=2017)]['team_covered'].value_counts().plot(kind = 'bar', title = 'Teams that Have Covered the Most Games (2017-2021)')
+
+#adding information about win/loss totals, points per game, yards per game, etc.
+
+stats2019 = pd.read_csv('nfl2019final.csv')
+stats2019.drop(['Unnamed: 5', 'Unnamed: 6', 'Unnamed: 7',
+       'Unnamed: 8', 'Unnamed: 9', 'Unnamed: 10', 'Unnamed: 11', 'Unnamed: 12',
+       'Unnamed: 13', 'Unnamed: 14'],axis = 1,inplace=True)
+stats2019.dropna(inplace=True)
+stats2019.info()
+
+stats2020 = pd.read_csv('nfl2020final.csv')
+stats2020.drop(['Unnamed: 5', 'Unnamed: 6', 'Unnamed: 7',
+       'Unnamed: 8', 'Unnamed: 9', 'Unnamed: 10', 'Unnamed: 11', 'Unnamed: 12',
+       'Unnamed: 13', 'Unnamed: 14','Unnamed: 15', 'Unnamed: 16',
+       'Unnamed: 17'],axis = 1,inplace=True)
+stats2020.dropna(inplace=True)
+stats2020.info()
+
+stats2021 = pd.read_csv('nfl2021final.csv')
+stats2021.drop(['Unnamed: 5', 'Unnamed: 6', 'Unnamed: 7',
+       'Unnamed: 8', 'Unnamed: 9', 'Unnamed: 10', 'Unnamed: 11', 'Unnamed: 12',
+       'Unnamed: 13', 'Unnamed: 14','Unnamed: 15', 'Unnamed: 16',
+       'Unnamed: 17', 'Unnamed: 18', 'Unnamed: 19'],axis = 1,inplace=True)
+stats2021.dropna(inplace=True)
+stats2021.info()
+
+#cleaning
+mod_score = scores_m.loc[(scores_m['schedule_season']>=2019)&(scores_m['schedule_playoff']==False)]
+mod_score['schedule_week']=mod_score['schedule_week'].astype(int)
+mod_score = mod_score.loc[mod_score['schedule_week']>8]
+mod_score.drop(['schedule_playoff','schedule_date','weather_wind_mph','weather_temperature','weather_humidity','weather_detail'], inplace = True, axis = 1)
+mod_score['team_underdog'] = mod_score['team_home'].where(mod_score['team_favorite']!=mod_score['team_home'],mod_score['team_away'])
+mod_score
+
+scores_19 = mod_score.loc[mod_score['schedule_season']==2019]
+full_19_f = scores_19.merge(stats2019, left_on='team_favorite', right_on = 'Team', how = 'outer')
+full_19_f.drop(['Team'],axis = 1, inplace = True)
+full_19_f = full_19_f.rename(columns = {'Points per Game':'f_ppg','Rush-Yds Per Game':'f_rush_yds_pg','Pass-Yds Per Game':'f_pass_yds_pg', 'Opponent Yds Per Game':'f_yds_all_pg'})
+full_19_f
+
+full_19 = full_19_f.merge(stats2019, left_on='team_underdog', right_on = 'Team', how = 'outer')
+full_19.drop(['Team'],axis = 1, inplace = True)
+full_19.dropna(inplace = True)
+full_19 = full_19.rename(columns = {'Points per Game':'u_ppg','Rush-Yds Per Game':'u_rush_yds_pg','Pass-Yds Per Game':'u_pass_yds_pg', 'Opponent Yds Per Game':'u_yds_all_pg'})
+full_19
+
+scores_20 = mod_score.loc[mod_score['schedule_season']==2020]
+full_20_f = scores_20.merge(stats2020, left_on='team_favorite', right_on = 'Team', how = 'outer')
+full_20_f.drop(['Team'],axis = 1, inplace = True)
+full_20_f = full_20_f.rename(columns = {'Points per Game':'f_ppg','Rush-Yds Per Game':'f_rush_yds_pg','Pass-Yds Per Game':'f_pass_yds_pg', 'Opponent Yds Per Game':'f_yds_all_pg'})
+full_20_f
+
+full_20 = full_20_f.merge(stats2020, left_on='team_underdog', right_on = 'Team', how = 'outer')
+full_20.drop(['Team'],axis = 1, inplace = True)
+full_20.dropna(inplace = True)
+full_20 = full_20.rename(columns = {'Points per Game':'u_ppg','Rush-Yds Per Game':'u_rush_yds_pg','Pass-Yds Per Game':'u_pass_yds_pg', 'Opponent Yds Per Game':'u_yds_all_pg'})
+full_20
+
+scores_21 = mod_score.loc[mod_score['schedule_season']==2021]
+full_21_f = scores_21.merge(stats2021, left_on='team_favorite', right_on = 'Team', how = 'outer')
+full_21_f.drop(['Team'],axis = 1, inplace = True)
+full_21_f = full_20_f.rename(columns = {'Points per Game':'f_ppg','Rush-Yds Per Game':'f_rush_yds_pg','Pass-Yds Per Game':'f_pass_yds_pg', 'Opponent Yds Per Game':'f_yds_all_pg'})
+full_21_f
+
+full_21 = full_21_f.merge(stats2021, left_on='team_underdog', right_on = 'Team', how = 'outer')
+full_21.drop(['Team'],axis = 1, inplace = True)
+full_21.dropna(inplace = True)
+full_21 = full_21.rename(columns = {'Points per Game':'u_ppg','Rush-Yds Per Game':'u_rush_yds_pg','Pass-Yds Per Game':'u_pass_yds_pg', 'Opponent Yds Per Game':'u_yds_all_pg'})
+full_21
+
+
+full_19_20 = pd.concat([full_19,full_20], axis = 0)
+full = pd.concat([full_19_20,full_21], axis = 0)
+full['schedule_week'].value_counts()
+
+import seaborn as sns
+#pairplot of relevant statistics
+full['fav_covered'] = full['fav_covered'].astype(bool)
+sns.pairplot(data = full[['fav_covered','f_ppg','f_yds_all_pg', 'u_ppg','u_yds_all_pg']], hue = 'fav_covered')
+
+#predictive model
+
+training = pd.concat([full_19,full_20], axis = 0)
+testing = full_21
+
+predictors = ['f_ppg', 'f_rush_yds_pg', 'f_pass_yds_pg',
+       'f_yds_all_pg', 'u_ppg', 'u_rush_yds_pg', 'u_pass_yds_pg',
+       'u_yds_all_pg']
+
+x_training = training[predictors].values
+x_testing = testing[predictors].values
+y_training = training['fav_covered'].values
+y_vals = testing['fav_covered'].values
+
+y_training = y_training.astype(float)
+y_vals = y_vals.astype(float)
+
+from sklearn.tree import DecisionTreeClassifier
+
+betting_model = DecisionTreeClassifier(random_state = 1)
+
+betting_model.fit(x_training,y_training)
+
+y_predict = betting_model.predict(x_testing)
+
+from sklearn.metrics import mean_absolute_error
+mean_absolute_error(y_predict, y_vals)
+
+#Feature Importances
+
+importances = betting_model.feature_importances_
+plt.bar(range(x_training.shape[1]), importances)
+plt.xticks(range(x_training.shape[1]),predictors, rotation = 90)
+plt.title('Feature Importances')
+plt.xlabel('Features')
+plt.ylabel('Importance')
+plt.show()
+
+
